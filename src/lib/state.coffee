@@ -5,75 +5,77 @@ class State
   constructor: (game)->
 
   preload: ->
-    # Preload Stage
     @game.stage = $.extend @game.stage, config.stage
-    
-    # Preload all images
     @game.load.image imageName, path for imageName, path of config.images
+    @game.load.audio audioName, path for audioName, path of config.audio
 
   create: ->
+    @soundsInit()
+    @playerInit()
+    @obstacleInit()
+    @goodiesInit()
 
-    offset = @game.width/4
-
-    @circle1 = @game.add.sprite offset, 0, 'circle'
-    @circle2 = @game.add.sprite -offset, 0, 'circle'
-
-    @circle1.anchor.setTo 0.5, 0.5
-    @circle2.anchor.setTo 0.5, 0.5
-    
-    @circle1.tint = 0xFF20A0
-    @circle2.tint = 0x256CFF
-
-    @circles = @game.add.group()
-    @circles.add @circle1
-    @circles.add @circle2
-
-    @circles.x = @game.width/2
-    @circles.y = @game.height/2
-    
-    # Circles
-    @blocks = @game.add.group()
-    @blocks.createMultiple 5, 'block'
-    @blocks.setAll 'scale.y', 6
-
-    @game.physics.arcade.enable @blocks
-    @game.physics.arcade.enable @circles
 
     @timer = @game.time.events.loop 3000, @addBlock, this
+    @goodieTimer = @game.time.events.loop 5000, @addGoodie, this
 
     @score = -2
-    style = font: '72px Arial', fill:'#ffffff'
-    
-    @scoreLabel = @game.add.text @game.width/2, @game.height/2, '0', style
-    @scoreLabel.anchor.setTo 0.5, 0.5
+    style = font: '22px Arial', fill:'#ffffff'
 
-    @instructionsLabel = @game.add.text @game.width/2, @game.height/2,
-      """
-      Use left/right arrow keys
-      
-      
-      
-      
-      Avoid blocks!
-      """
-    , font: '32px Arial', fill: '#ffffff', align: 'center'
-    @instructionsLabel.anchor.setTo 0.5, 0.5
-
-    @game.add.tween(@instructionsLabel).delay(1000).to({alpha: 0}, 1500).start()
+    @scoreLabel = @game.add.text @game.width - 10, @game.height - 10, '0', style
+    @scoreLabel.anchor.setTo 2, 1
 
     @gameSpeed = 1
 
+  soundsInit: ->
+    @tunes = this.add.audio('music')
+    @deadSound = this.add.audio('dead')
+    @powerupSound = this.add.audio('pup')
+    @tunes.play()
+
+  playerInit: ->
+    @player = @game.add.sprite 0, 0, 'ship'
+    @player.anchor.setTo -1, -2.5
+    @player.scale.setTo .1, .1
+    # @player.tint = 0x00CCFF
+    # @game.camera.follow @player
+    @game.physics.arcade.enable @player
+    @player.body.gravity.y = 70
+
+  obstacleInit: ->
+    @blocks = @game.add.group()
+    @blocks.createMultiple 5, 'block'
+    @blocks.setAll 'scale.y', 1.5
+    @blocks.setAll 'scale.x', 1.5
+    @game.physics.arcade.enable @blocks
+
+  goodiesInit: ->
+    @goodies = @game.add.group()
+    @goodies.setAll 'scale.y', 2
+    @goodies.setAll 'scale.x', 2
+    @goodies.setAll 'tint' , '0000FF'
+    @goodies.createMultiple 20, 'star'
+
+    @game.physics.arcade.enable @goodies
+
   update: ->
-    @rotate -1 if @input.keyboard.isDown Phaser.Keyboard.LEFT
-    @rotate  1 if @input.keyboard.isDown Phaser.Keyboard.RIGHT
+    # controls
+    @move_y -1 if @input.keyboard.isDown Phaser.Keyboard.UP
+    @move_y  1 if @input.keyboard.isDown Phaser.Keyboard.DOWN
 
-    @game.physics.arcade.overlap @circle1, @blocks, @gameOver, null, this
-    @game.physics.arcade.overlap @circle2, @blocks, @gameOver, null, this
+    # dat Collision mang.
+    @gameOver() if @player.body.bottom >= @world.bounds.bottom
+    @game.physics.arcade.overlap @player, @blocks, @gameOver, null, this
+    @game.physics.arcade.overlap @player, @goodies, @goodieGrab, null, this
+    @game.physics.arcade.collide @blocks, @goodies, null, null, this
 
-  rotate: (angle)->
-    @circles.angle += angle*@gameSpeed
-    @circle1.angle -= angle*@gameSpeed
-    @circle2.angle -= angle*@gameSpeed
+  # Movements!
+  move_x: (direction)->
+    @player.body.velocity.x = 0
+    @player.body.x += direction
+
+  move_y: (direction)->
+    @player.body.velocity.y = direction * 50
 
   addBlock: ->
     block = @blocks.getFirstDead()
@@ -84,10 +86,6 @@ class State
     block.checkWorldBounds = yes
     block.outOfBoundsKill = yes
 
-    @score++
-
-    @scoreLabel.text = @score if @score > 0
-
     @gameSpeed *= 1.02
 
     @timer.delay /= 1.02
@@ -95,8 +93,37 @@ class State
     @blocks.forEachAlive (aliveBlock)=>
       aliveBlock.body.velocity.x = -150 * @gameSpeed
 
+  addGoodie: ->
+    goodie = @goodies.getFirstDead()
+    nth = Math.floor Math.random() * 3
+    goodie.reset @game.width, nth * this.game.height/3
+    goodie.body.velocity.x = -150
+    goodie.checkWorldBounds = yes
+    goodie.outOfBoundsKill = yes
+
+    @gameSpeed *= 1.02
+
+    @timer.delay /= 1.02
+
+    @goodies.forEachAlive (aliveGoodie)=>
+      aliveGoodie.body.velocity.x = -150 * @gameSpeed
+
+  goodieGrab: (player, goody) =>
+    @setScore()
+    @powerupSound.play()
+    goody.kill()
+
+  setScore: ->
+    if @score < 0
+      @score = 1
+    else
+      @score++
+    @scoreLabel.text = @score
+
   gameOver: ->
-    @game.state.start 'game'
+    @deadSound.play()
+    @game.state.start 'mainmenu'
     @game.time.events.remove @timer
+    @tunes.stop()
 
 module.exports = State
